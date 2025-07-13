@@ -35,16 +35,8 @@ class GPTFastEvalWrapper(MinimumLM):
         tokenizer,
         max_seq_length: Optional[int]=None,
     ):
-        # NOTE: in lm-eval>=0.4.3 (<=0.4.9 at time of writing), `pretrained` becomes required arg for `HFLM.__init__()`
-        # Here still use "gpt2" default to bypass errors, then overwrite with our custom model and tokenizer
-        # For reference, compare the following commits:
-        # https://github.com/EleutherAI/lm-evaluation-harness/blob/v0.4.2/lm_eval/models/huggingface.py#L80
-        # https://github.com/EleutherAI/lm-evaluation-harness/blob/v0.4.3/lm_eval/models/huggingface.py#L82
-        # https://github.com/EleutherAI/lm-evaluation-harness/blob/v0.4.9/lm_eval/models/huggingface.py#L60
-        super().__init__(pretrained="gpt2")
-        self._model = model
-        self._tokenizer = tokenizer
-        self._device = torch.device('cuda')  # TODO: correctly set devices for TP>=2 cases
+        device = torch.device('cuda')  # TODO: correctly set devices for TP>=2 cases
+        super().__init__(model=model, tokenizer=tokenizer, device=device, max_seq_length=max_seq_length)
         self._max_seq_length = 2048 if max_seq_length is None else max_seq_length
 
     @property
