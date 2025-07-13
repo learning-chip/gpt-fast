@@ -15,7 +15,6 @@ from typing import Optional
 import torch
 
 import lm_eval
-from lm_eval.models.huggingface import HFLM
 from lm_eval.tasks import get_task_dict
 from lm_eval.evaluator import evaluate
 from lm_eval.utils import make_table
@@ -24,9 +23,9 @@ from tokenizer import get_tokenizer
 from model import Transformer
 from generate import _load_model, encode_tokens, model_forward, device_sync
 from eval import setup_cache_padded_seq_input_pos_max_seq_length_for_prefill
+from eval_template import MinimumLM
 
-
-class GPTFastEvalWrapper(HFLM):
+class GPTFastEvalWrapper(MinimumLM):
     """
     A wrapper class for GPTFast, providing integration with the lm-evaluation-harness library.
     """
