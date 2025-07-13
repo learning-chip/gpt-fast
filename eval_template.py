@@ -171,10 +171,9 @@ class MinimumLM(TemplateLM):
                 gguf_file=gguf_file,
             )
 
-            # determine which of 'causal' and 'seq2seq' backends to use for HF models
-        self._get_backend(
-            config=self.config, backend=backend, trust_remote_code=trust_remote_code
-        )
+        # NOTE: assume causal decoding-only model
+        self.backend = "causal"
+        self.AUTO_MODEL_CLASS = transformers.AutoModelForCausalLM
 
         # load tokenizer so we know tokenizer vocabulary size before loading model and PEFT
         self._create_tokenizer(
@@ -452,68 +451,6 @@ class MinimumLM(TemplateLM):
     @property
     def tokenizer_name(self) -> str:
         return self.tokenizer.name_or_path.replace("/", "__")
-
-    def _get_backend(
-        self,
-        config: Union[transformers.PretrainedConfig, transformers.AutoConfig],
-        backend: Literal["default", "causal", "seq2seq"] = "default",
-        trust_remote_code: Optional[bool] = False,
-    ) -> None:
-        """
-        Helper method during initialization.
-        Determines the backend ("causal" (decoder-only) or "seq2seq" (encoder-decoder)) model type to be used.
-        sets `self.AUTO_MODEL_CLASS` appropriately if not already set.
-
-        **If not calling HFLM.__init__() or HFLM._get_backend() within a subclass of HFLM,
-        user must set `self.backend` to be either "causal" or "seq2seq" manually!**
-        """
-
-        assert backend in ["default", "causal", "seq2seq"]
-
-        if backend != "default":
-            # if we've settled on non-default backend, use that manually
-            if backend == "causal":
-                self.backend = backend
-            elif backend == "seq2seq":
-                self.backend = backend
-            eval_logger.info(
-                f"Overrode HF model backend type, and using type '{self.backend}'"
-            )
-        else:
-            # determine and use the default HF backend for this model, based on its config + metadata.
-            if (
-                getattr(config, "model_type")
-                in MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES
-            ):
-                # first check if model type is listed under seq2seq models, since some
-                # models like MBart are listed in both seq2seq and causal mistakenly in HF transformers.
-                # these special cases should be treated as seq2seq models.
-                self.backend = "seq2seq"
-                eval_logger.debug(f"Using model type '{self.backend}'")
-            elif (
-                getattr(self.config, "model_type") in MODEL_FOR_CAUSAL_LM_MAPPING_NAMES
-            ):
-                self.backend = "causal"
-                eval_logger.debug(f"Using model type '{self.backend}'")
-            else:
-                if not trust_remote_code:
-                    eval_logger.warning(
-                        "HF model type is neither marked as CausalLM or Seq2SeqLM. \
-                    This is expected if your model requires `trust_remote_code=True` but may be an error otherwise."
-                        "Setting backend to causal"
-                    )
-                # if model type is neither in HF transformers causal or seq2seq model registries
-                # then we default to assuming AutoModelForCausalLM
-                self.backend = "causal"
-                eval_logger.info(
-                    f"Model type cannot be determined. Using default model type '{self.backend}'"
-                )
-
-        if self.AUTO_MODEL_CLASS is None:
-            if self.backend == "causal":
-                self.AUTO_MODEL_CLASS = transformers.AutoModelForCausalLM
-            elif self.backend == "seq2seq":
-                self.AUTO_MODEL_CLASS = transformers.AutoModelForSeq2SeqLM
 
     def _get_config(
         self,
