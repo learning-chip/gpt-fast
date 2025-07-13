@@ -236,8 +236,9 @@ def _load_model(checkpoint_path, device, precision, use_tp):
     model.load_state_dict(checkpoint, assign=True)
 
     if use_tp:
-        from tp import apply_tp
-        print("Applying tensor parallel to model ...")
+        from tp import apply_tp, _get_rank
+        rank = _get_rank()
+        print(f"[rank {rank}] Applying tensor parallel to model ...")
         apply_tp(model)
 
     model = model.to(device=device, dtype=precision)
@@ -279,14 +280,16 @@ def main(
     tokenizer_path = checkpoint_path.parent / "tokenizer.model"
     assert tokenizer_path.is_file(), str(tokenizer_path)
 
-    global print
+    # global print
     from tp import maybe_init_dist
     rank = maybe_init_dist()
     use_tp = rank is not None
-    if use_tp:
-        if rank != 0:
-            # only print on rank 0
-            print = lambda *args, **kwargs: None
+
+    # NOTE: allow print on each rank for debugging
+    # if use_tp:
+    #     if rank != 0:
+    #         # only print on rank 0
+    #         print = lambda *args, **kwargs: None
 
     print(f"Using device={device}")
     precision = torch.bfloat16

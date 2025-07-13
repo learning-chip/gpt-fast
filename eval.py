@@ -28,7 +28,7 @@ try:
 except:
     lm_eval_available = False
 
-from generate import _load_model, encode_tokens, model_forward
+from generate import _load_model, encode_tokens, model_forward, device_sync
 
 if lm_eval_available:
     try: # lm_eval version 0.4
@@ -230,12 +230,17 @@ def main(
     device = 'cuda'
     precision = torch.bfloat16
 
-    print("Loading model ...")
-    t0 = time.time()
-    model = _load_model(checkpoint_path, device, precision, False)
+    # TP handling taken from `generate.py`
+    from tp import maybe_init_dist
+    rank = maybe_init_dist()
+    use_tp = rank is not None
 
-    torch.cuda.synchronize()
-    print(f"Time to load model: {time.time() - t0:.02f} seconds.")
+    print(f"[rank {rank}] Loading model ...")
+    t0 = time.time()
+    model = _load_model(checkpoint_path, device, precision, use_tp)
+
+    device_sync(device=device)
+    print(f"[rank {rank}] Time to load model: {time.time() - t0:.02f} seconds.")
 
     model.eval()
 
@@ -248,6 +253,7 @@ def main(
         model_forward = torch.compile(model_forward,  mode="reduce-overhead", dynamic=True, fullgraph=True)
         torch._inductor.config.coordinate_descent_tuning = True
 
+    device_sync(device=device)
     t1 = time.time()
     result = eval(
         model,
@@ -256,15 +262,16 @@ def main(
         limit,
         max_seq_length,
     )
-    print(f"Time to run eval: {time.time() - t1:.02f} seconds.")
-    print(f"For model {checkpoint_path}")
+    print(f"[rank {rank}] Time to run eval: {time.time() - t1:.02f} seconds.")
+    print(f"[rank {rank}] For model {checkpoint_path}")
 
     # Print results
     if make_table is not None:
-        print(make_table(result))
+        print(f"[rank {rank}]", make_table(result))
     else:
-        for task, res in result["results"].items():
-            print(f"{task}: {res}")
+        if rank is None or rank == 0:
+            for task, res in result["results"].items():
+                print(f"{task}: {res}")
 
 
 if __name__ == '__main__':
