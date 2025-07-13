@@ -35,6 +35,8 @@ if lm_eval_available:
         from lm_eval.models.huggingface import HFLM as eval_wrapper
         from lm_eval.tasks import get_task_dict
         from lm_eval.evaluator import evaluate
+        from lm_eval.utils import make_table
+
     except: #lm_eval version 0.3
         from lm_eval import base
         from lm_eval import tasks
@@ -42,7 +44,7 @@ if lm_eval_available:
         eval_wrapper=base.BaseLM
         get_task_dict=tasks.get_task_dict
         evaluate=evaluator.evaluate
-
+        make_table = None
 
 def setup_cache_padded_seq_input_pos_max_seq_length_for_prefill(
     model: Transformer,
@@ -256,8 +258,13 @@ def main(
     )
     print(f"Time to run eval: {time.time() - t1:.02f} seconds.")
     print(f"For model {checkpoint_path}")
-    for task, res in result["results"].items():
-        print(f"{task}: {res}")
+
+    # Print results
+    if make_table is not None:
+        print(make_table(result))
+    else:
+        for task, res in result["results"].items():
+            print(f"{task}: {res}")
 
 
 if __name__ == '__main__':
