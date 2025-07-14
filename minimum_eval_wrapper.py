@@ -57,6 +57,10 @@ class GPTFastEvalWrapper(TemplateLM):
 
         self.custom_prefix_token_id = None
 
+        # still need `freqs_cis` and `causal_mask` cache even for prefill
+        with torch.device(device):
+            self._model.setup_caches(max_batch_size=1, max_seq_length=self._max_seq_length)
+
     @property
     def config(self):
         # return the associated transformers.AutoConfig for the given pretrained model.
@@ -116,36 +120,18 @@ class GPTFastEvalWrapper(TemplateLM):
         decoded = self._tokenizer.decode(tokens)
         return decoded
 
-    def _model_call(self, inps):
+    def _model_call(self, x):
         """
-        :param inps: torch.Tensor
+        :param x: torch.Tensor
             A torch tensor of shape [batch, (sequence_ctx + sequence_cont)] or of shape
             [batch, sequence_ctx]. the size of sequence may vary from call to call
         :return
             A torch tensor of shape [batch, sequence, vocab] with the
         logits returned from the model's decoder
         """
-        # TODO: make batches work
-        inps = inps.squeeze(0)
-
-        max_new_tokens = 1
-        seq, input_pos, max_seq_length = \
-            setup_cache_padded_seq_input_pos_max_seq_length_for_prefill(
-                self._model,
-                inps,
-                max_new_tokens,
-                self.max_length,
-            )
-        x = seq.index_select(0, input_pos).view(1, -1)
-
-        rank = _get_rank()
-        print(
-            f"[rank {rank}] _model.device = {next(self._model.parameters()).device}; "
-            f"x.device = {x.device}; input_pos.device = {input_pos.device}"
-        )
-
-        logits = model_forward(self._model, x, input_pos)
-        print(f"[rank {rank}] logits.device = {logits.device}")
+        T = x.size(1)  # seqlen for batch_size=1
+        input_pos = torch.arange(0, T, device=x.device)
+        logits = self._model(x, input_pos)  # just run prefill
         return logits
 
     def _select_cont_toks(
