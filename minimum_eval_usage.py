@@ -39,9 +39,7 @@ from minimum_eval_wrapper import GPTFastEvalWrapper
 def eval(
     model: Transformer,
     tokenizer,
-    tasks: list = ["mmlu"],
-    limit: Optional[int] = None,
-    max_seq_length: Optional[int] = None,
+    tasks: list = ["mmlu"]
 ) -> dict:
     """
     Evaluates a language model on a specified task using the lm-evaluation-harness library.
@@ -58,8 +56,7 @@ def eval(
     """
     lm = GPTFastEvalWrapper(
         model,
-        tokenizer,
-        max_seq_length,
+        tokenizer
     )
 
     # NOTE: `initialize_tasks()` is removed since 0.4.2
@@ -74,9 +71,7 @@ def eval(
 
 def main(
     checkpoint_path: Path = Path("checkpoints/meta-llama/Llama-2-7b-chat-hf/lit_model.pth"),
-    tasks: list = ["hellaswag"],
-    limit: Optional[int] = None,
-    max_seq_length: Optional[int] = None,
+    tasks: list = ["mmlu"]
 ) -> None:
     """Evaluates model on a task from the `lm-evaluation-harness` library.
 
@@ -86,7 +81,7 @@ def main(
         limit (Optional[int]): The maximum number of samples to evaluate (None for all available).
         max_seq_length (Optional[int]): The maximum sequence length allowed for input text.
     """
-    torch.cuda.set_device("cuda:0")  # only for single-device case, do not set here when TP
+    torch.cuda.set_device("cuda:1")  # only for single-device case, do not set here when TP
 
     assert checkpoint_path.is_file(), checkpoint_path
 
@@ -118,9 +113,7 @@ def main(
     result = eval(
         model,
         tokenizer,
-        tasks,
-        limit,
-        max_seq_length,
+        tasks
     )
     print(f"[rank {rank}] Time to run eval: {time.time() - t1:.02f} seconds.")
     print(f"[rank {rank}] For model {checkpoint_path}")
@@ -135,10 +128,8 @@ if __name__ == '__main__':
 
     parser.add_argument('--checkpoint_path', type=Path, default=Path("checkpoints/meta-llama/Llama-2-7b-chat-hf/lit_model.pth"), help='Model checkpoint path.')
     parser.add_argument('--tasks', nargs='+', type=str, default=["hellaswag"], help='list of lm-eluther tasks to evaluate usage: --tasks task1 task2')
-    parser.add_argument('--limit', type=int, default=None, help='number of samples to evalulate')
-    parser.add_argument('--max_seq_length', type=int, default=None, help='maximum length sequence to evaluate')
 
     args = parser.parse_args()
     main(
-        Path(args.checkpoint_path), args.tasks, args.limit, args.max_seq_length,
+        Path(args.checkpoint_path), args.tasks
     )

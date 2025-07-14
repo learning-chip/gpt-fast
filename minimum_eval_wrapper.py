@@ -22,39 +22,28 @@ eval_logger = logging.getLogger(__name__)
 
 @register_model("minimum")
 class GPTFastEvalWrapper(TemplateLM):
-    _DEFAULT_MAX_LENGTH = 2048
-
     """
-    A wrapper class for GPTFast, providing integration with the lm-evaluation-harness library.
-    Minimum causal LM for easy modification.
+    Minimum code to interface lm-eval for easy modification.    
+    NOTE: hard-coded to batch_size=1 to avoid complex batching logic
     """
     def __init__(
         self,
         model: Transformer,
         tokenizer,
-        max_seq_length: Optional[int]=None,
+        max_seq_length: Optional[int] = 2048,
+        device = "cuda",  # TODO: correctly set devices for TP>=2 cases
+        softmax_dtype = None  # TODO: use float32 to get higher acc?
     ):
         super().__init__()
-        device = torch.device('cuda')  # TODO: correctly set devices for TP>=2 cases
-        self._max_seq_length = 2048 if max_seq_length is None else max_seq_length
-
+        self._max_seq_length = max_seq_length
         self._model = model
-        self.tokenizer = self._tokenizer = tokenizer
-        self._device = device
-
-        # NOTE: assume causal decoding-only model
-        self.backend = "causal"
-
-        self._max_length = max_seq_length
-        self.softmax_dtype = None  # TODO: use float32 to get higher acc?
+        self._tokenizer = tokenizer
+        self._device = torch.device(device)
+        self.softmax_dtype = softmax_dtype
 
         # still need `freqs_cis` and `causal_mask` cache even for prefill
-        with torch.device(device):
+        with torch.device(self._device):
             self._model.setup_caches(max_batch_size=1, max_seq_length=self._max_seq_length)
-
-    @property
-    def model(self):
-        return self._model
 
     @property
     def eot_token_id(self):
@@ -63,10 +52,6 @@ class GPTFastEvalWrapper(TemplateLM):
     @property
     def max_length(self):
         return self._max_seq_length
-
-    @property
-    def max_gen_toks(self):
-        return 50
 
     @property
     def batch_size(self):
@@ -212,7 +197,7 @@ class GPTFastEvalWrapper(TemplateLM):
         """
         Method to apply a chat template to a list of chat history between user and model.
         """
-        chat_templated = self.tokenizer.apply_chat_template(
+        chat_templated = self._tokenizer.apply_chat_template(
             chat_history,
             tokenize=False,
             add_generation_prompt=add_generation_prompt,
@@ -220,7 +205,7 @@ class GPTFastEvalWrapper(TemplateLM):
         )
         return chat_templated
 
-    # NOTE: below implemented functions are not needed for multiple choice "loglikelihood" tasks
+    # NOTE: below unimplemented functions are not needed for multiple choice "loglikelihood" tasks
     def loglikelihood_rolling(
         self, requests: List[Instance], disable_tqdm: bool = False
     ) -> List[float]:
@@ -232,4 +217,8 @@ class GPTFastEvalWrapper(TemplateLM):
     def generate_until(
         self, requests: List[Instance], disable_tqdm: bool = False
     ) -> List[str]:
+        raise Exception('unimplemented')
+
+    @property
+    def max_gen_toks(self):
         raise Exception('unimplemented')
