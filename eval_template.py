@@ -124,43 +124,6 @@ class GPTFastEvalWrapper(TemplateLM):
         encoded = encoded.tolist()
         return encoded
 
-    def tok_batch_encode(
-        self,
-        strings: List[str],
-        padding_side: str = "left",
-        left_truncate_len: int = None,
-        truncation: bool = False,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        # encode a batch of strings. converts to tensors and pads automatically, unlike tok_encode.
-        old_padding_side = self.tokenizer.padding_side
-        self.tokenizer.padding_side = padding_side
-
-        add_special_tokens = {}
-        if self.backend == "causal":
-            add_special_tokens = {"add_special_tokens": False or self.add_bos_token}
-
-        encoding = self.tokenizer(
-            strings,
-            truncation=truncation,
-            padding="longest",
-            return_tensors="pt",
-            **add_special_tokens,
-        )
-        if left_truncate_len:
-            original_lengths = encoding["input_ids"].size(1)
-            if original_lengths > left_truncate_len:
-                eval_logger.warn(
-                    f"Left truncation applied. Original sequence length was {original_lengths}, "
-                    f"truncating to last {left_truncate_len} tokens. Some content will be lost.",
-                )
-            encoding["input_ids"] = encoding["input_ids"][:, -left_truncate_len:]
-            encoding["attention_mask"] = encoding["attention_mask"][
-                :, -left_truncate_len:
-            ]
-        self.tokenizer.padding_side = old_padding_side
-
-        return encoding["input_ids"], encoding["attention_mask"]
-
     def tok_decode(self, tokens):
         decoded = self._tokenizer.decode(tokens)
         return decoded
@@ -286,47 +249,20 @@ class GPTFastEvalWrapper(TemplateLM):
                 # cont_toks      4 5 6 7 8 9      [:, -len(continuation_enc):, :self.vocab_size] slice
 
                 # when too long to fit in context, truncate from the left
-                if self.backend == "causal":
-                    total_length = len(context_enc) + len(continuation_enc)
-                    if total_length > self.max_length + 1:
-                        eval_logger.warning(
-                            f"Combined length of context ({len(context_enc)}) and continuation ({len(continuation_enc)}) "
-                            f"exceeds model's maximum length ({self.max_length}). "
-                            f"Truncating {total_length - self.max_length + 1} tokens from the left."
-                        )
-                    inp = torch.tensor(
-                        (context_enc + continuation_enc)[-(self.max_length + 1) :][:-1],
-                        dtype=torch.long,
-                        device=self.device,
+                # assume causal model
+                total_length = len(context_enc) + len(continuation_enc)
+                if total_length > self.max_length + 1:
+                    eval_logger.warning(
+                        f"Combined length of context ({len(context_enc)}) and continuation ({len(continuation_enc)}) "
+                        f"exceeds model's maximum length ({self.max_length}). "
+                        f"Truncating {total_length - self.max_length + 1} tokens from the left."
                     )
-                    (inplen,) = inp.shape
-                elif self.backend == "seq2seq":
-                    inp = torch.tensor(
-                        (context_enc)[-self.max_length :],
-                        dtype=torch.long,
-                        device=self.device,
-                    )
-                    (inplen,) = inp.shape
-
-                    # build encoder attn masks
-                    encoder_attns.append(torch.ones_like(inp))
-
-                    cont = torch.tensor(
-                        (continuation_enc)[-self.max_length :],
-                        # TODO: left-shift these?
-                        # TODO: our code assumes we never end up truncating conts for either model type
-                        dtype=torch.long,
-                        device=self.device,
-                    )
-                    (contlen,) = cont.shape
-
-                    conts.append(cont)
-
-                    padding_len_cont = (
-                        max(padding_len_cont, contlen)
-                        if padding_len_cont is not None
-                        else contlen
-                    )
+                inp = torch.tensor(
+                    (context_enc + continuation_enc)[-(self.max_length + 1) :][:-1],
+                    dtype=torch.long,
+                    device=self.device,
+                )
+                (inplen,) = inp.shape
 
                 padding_len_inp = (
                     max(padding_len_inp, inplen)
@@ -337,31 +273,14 @@ class GPTFastEvalWrapper(TemplateLM):
                 inps.append(inp)  # [1, inp_length]
                 cont_toks_list.append(continuation_enc)
                 inplens.append(inplen)
-
-            # create encoder attn mask and batched conts, if seq2seq
-            call_kwargs = {}
-            if self.backend == "causal":
-                batched_inps = pad_and_concat(
-                    padding_len_inp, inps, padding_side="right"
-                )  # [batch, padding_len_inp]
-            elif self.backend == "seq2seq":
-                # TODO: left-pad encoder inps and mask?
-                batched_inps = pad_and_concat(
-                    padding_len_inp, inps
-                )  # [batch, padding_len_inp]
-                batched_conts = pad_and_concat(
-                    padding_len_cont, conts
-                )  # [batch, padding_len_cont]
-                batched_encoder_mask = pad_and_concat(
-                    padding_len_inp, encoder_attns
-                )  # [batch, padding_len_inp]
-                call_kwargs = {
-                    "attn_mask": batched_encoder_mask,
-                    "labels": batched_conts,
-                }
+            
+            # assume "causal" model
+            batched_inps = pad_and_concat(
+                padding_len_inp, inps, padding_side="right"
+            )  # [batch, padding_len_inp]
 
             multi_logits = F.log_softmax(
-                self._model_call(batched_inps, **call_kwargs),
+                self._model_call(batched_inps),
                 dim=-1,
                 dtype=self.softmax_dtype,
             )  # [batch, padding_length (inp or cont), vocab]
