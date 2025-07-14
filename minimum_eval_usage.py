@@ -9,7 +9,6 @@ python minimum_eval_usage.py --checkpoint_path $MODEL_PATH \
 
 python minimum_eval_usage.py --checkpoint_path $MODEL_PATH \
     --tasks mmlu | tee run_minimumeval_mmlu.log
-# TODO: why 2x slower than original eval wrapper
 
 # debug TP=2
 torchrun --standalone --nproc_per_node=2 \

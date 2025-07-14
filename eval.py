@@ -2,7 +2,8 @@
 MODEL_PATH=/scratch/model_weights/Llama-2-7b-chat-hf/model.pth
 
 python eval.py --checkpoint_path $MODEL_PATH \
-    --tasks mmlu_high_school_computer_science mmlu_college_biology | tee run_eval_mmlusubset.log
+    --tasks mmlu_high_school_computer_science mmlu_college_biology \
+    | tee run_eval_mmlusubset_nocache.log
 
 python eval.py --checkpoint_path $MODEL_PATH \
     --tasks mmlu | tee run_eval_mmlu.log
@@ -111,7 +112,7 @@ class GPTFastEvalWrapper(eval_wrapper):
         # https://github.com/EleutherAI/lm-evaluation-harness/blob/v0.4.2/lm_eval/models/huggingface.py#L80
         # https://github.com/EleutherAI/lm-evaluation-harness/blob/v0.4.3/lm_eval/models/huggingface.py#L82
         # https://github.com/EleutherAI/lm-evaluation-harness/blob/v0.4.9/lm_eval/models/huggingface.py#L60
-        super().__init__(pretrained="gpt2")
+        super().__init__(pretrained="gpt2", logits_cache=False)  #  NOTE: check streamlined eval has same perf without logits_cache
         self._model = model
         self._tokenizer = tokenizer
         self._device = torch.device('cuda')  # TODO: correctly set devices for TP>=2 cases

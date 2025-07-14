@@ -46,7 +46,6 @@ class GPTFastEvalWrapper(TemplateLM):
 
         # NOTE: assume causal decoding-only model
         self.backend = "causal"
-        self.logits_cache = True
 
         self._max_length = max_seq_length
         self.softmax_dtype = None  # TODO: use float32 to get higher acc?
@@ -159,6 +158,10 @@ class GPTFastEvalWrapper(TemplateLM):
         override_bs: int = None,
     ) -> List[Tuple[float, bool]]:
         # Simplified for batch_size=1: no Collator, just loop over requests
+        # NOTE: can be 2x slower than HFLM even both with batch_size=1, due to missing the `logits_cache` feature
+        # by `Collator` that saves computations for shared-prefix contexts. Here always recomputes for every query.
+        # ref https://github.com/EleutherAI/lm-evaluation-harness/blob/v0.4.9/lm_eval/models/huggingface.py#L1082
+
         pbar = tqdm(
             total=len(requests),
             disable=(disable_tqdm or (self.rank != 0)),
