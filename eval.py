@@ -201,7 +201,9 @@ def eval(
     eval_results = lm_eval.simple_evaluate(
         model=lm,
         tasks=tasks,
-        task_manager=task_manager
+        task_manager=task_manager,
+        batch_size=1,
+        max_batch_size=1
     )
     return eval_results
 
