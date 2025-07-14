@@ -11,7 +11,7 @@ python minimum_eval_usage.py --checkpoint_path $MODEL_PATH \
     --tasks mmlu | tee run_minimumeval_mmlu.log
 
 # debug TP=2
-torchrun --standalone --nproc_per_node=2 \
+CUDA_LAUNCH_BLOCKING=1 torchrun --standalone --nproc_per_node=2 \
     minimum_eval_usage.py --checkpoint_path $MODEL_PATH \
     --tasks mmlu_high_school_computer_science mmlu_college_biology \
     2>&1 | tee run_minimumeval_mmlusubset_TP2.log

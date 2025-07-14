@@ -145,6 +145,7 @@ class GPTFastEvalWrapper(TemplateLM):
         )
 
         logits = model_forward(self._model, x, input_pos)
+        print(f"[rank {rank}] logits.device = {logits.device}")
         return logits
 
     def _select_cont_toks(
