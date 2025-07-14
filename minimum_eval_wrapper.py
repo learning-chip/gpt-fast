@@ -159,16 +159,27 @@ class GPTFastEvalWrapper(TemplateLM):
         self,
         requests: List[Tuple[Tuple[str, str], List[int], List[int]]],
         disable_tqdm: bool = False,
+        sort_by_longest: bool = True,
         override_bs: int = None,
     ) -> List[Tuple[float, bool]]:
         # Simplified for batch_size=1: no Collator, just loop over requests
-        res = []
         pbar = tqdm(
             total=len(requests),
             disable=(disable_tqdm or (self.rank != 0)),
             desc="Running loglikelihood requests",
         )
-        for request in requests:
+
+        # Track original indices.
+        indexed_requests = list(enumerate(requests))
+
+        if sort_by_longest:
+            # Sort requests by descending length to catch OOM early,
+            # but recover the original order in the returned results.
+            # Verified that output accuracy score is not affected.
+            indexed_requests = sorted(indexed_requests, key=lambda r: len(r[1][1]), reverse=True)
+
+        res = [None] * len(requests)  # Prepare a placeholder for results in original order
+        for orig_idx, request in indexed_requests:
             request_str, context_enc, continuation_enc = request
             # sanity check
             assert len(context_enc) > 0
@@ -218,7 +229,7 @@ class GPTFastEvalWrapper(TemplateLM):
             ).squeeze(-1)  # [1, seq]
 
             answer = (float(logits_gathered.sum()), bool(max_equal))
-            res.append(answer)
+            res[orig_idx] = answer
 
             if request_str is not None:
                 self.cache_hook.add_partial(
