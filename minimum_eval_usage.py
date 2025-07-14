@@ -25,8 +25,6 @@ from typing import Optional
 import torch
 
 import lm_eval
-from lm_eval.tasks import get_task_dict
-from lm_eval.evaluator import evaluate
 from lm_eval.utils import make_table
 
 from tokenizer import get_tokenizer
