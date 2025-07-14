@@ -6,16 +6,12 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
-import transformers
 from tqdm import tqdm
 
 from lm_eval import utils
 from lm_eval.api.instance import Instance
 from lm_eval.api.model import TemplateLM
 from lm_eval.api.registry import register_model
-
-from model import Transformer
-from generate import encode_tokens, model_forward
 
 eval_logger = logging.getLogger(__name__)
 
@@ -28,7 +24,7 @@ class GPTFastEvalWrapper(TemplateLM):
     """
     def __init__(
         self,
-        model: Transformer,
+        model,
         tokenizer,
         max_seq_length: Optional[int] = 2048,
         device = "cuda",  # TODO: correctly set devices for TP>=2 cases
