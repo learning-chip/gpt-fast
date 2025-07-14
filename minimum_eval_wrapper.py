@@ -13,12 +13,9 @@ from lm_eval import utils
 from lm_eval.api.instance import Instance
 from lm_eval.api.model import TemplateLM
 from lm_eval.api.registry import register_model
-from lm_eval.models.utils import pad_and_concat
 
 from model import Transformer
 from generate import encode_tokens, model_forward
-from eval import setup_cache_padded_seq_input_pos_max_seq_length_for_prefill
-from tp import apply_tp, _get_rank
 
 eval_logger = logging.getLogger(__name__)
 
@@ -196,14 +193,13 @@ class GPTFastEvalWrapper(TemplateLM):
             cont_toks = continuation_enc
             contlen = len(cont_toks)
 
-            # Pad to batch (batch_size=1)
-            batched_inps = pad_and_concat(inplen, [inp], padding_side="right")  # [1, inplen]
-            multi_logits = F.log_softmax(
-                self._model_call(batched_inps),
+            inp = inp.unsqueeze(0)  # # [seq] -> [1, seq]
+            logits = F.log_softmax(
+                self._model_call(inp),
                 dim=-1,
                 dtype=self.softmax_dtype,
             )  # [1, inplen, vocab]
-            logits = multi_logits[0]  # [inplen, vocab]
+            logits = logits[0]  # [inplen, vocab]
 
             # For batch_size=1, padding_len_inp = inplen, so ctx_len = inplen
             ctx_len = inplen
