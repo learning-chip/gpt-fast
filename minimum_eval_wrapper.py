@@ -63,12 +63,11 @@ class GPTFastEvalWrapper(TemplateLM):
     # https://github.com/EleutherAI/lm-evaluation-harness/blob/v0.4.9/lm_eval/models/vllm_causallms.py#L108
 
     def tok_encode(self, string: str, **kwargs):
-        encoded = encode_tokens(self._tokenizer,
-            string, bos=True, device=self._device)
-        # encoded is a pytorch tensor, but some internal logic in the
-        # eval harness expects it to be a list instead
-        encoded = encoded.tolist()
-        return encoded
+        tokenizer = self._tokenizer
+        tokens = tokenizer.encode(string)
+        tokens = [tokenizer.bos_id()] + tokens
+        # some internal logic in lm-eval expects `encoded` to be a list, not tensor
+        return tokens
 
     def tok_decode(self, tokens):
         decoded = self._tokenizer.decode(tokens)
