@@ -1,3 +1,14 @@
+"""
+MODEL_PATH=/scratch/model_weights/Llama-2-7b-chat-hf/model.pth
+
+python eval.py --checkpoint_path $MODEL_PATH \
+    --tasks mmlu_high_school_computer_science mmlu_college_biology | tee run_eval_mmlusubset.log
+
+python eval.py --checkpoint_path $MODEL_PATH \
+    --tasks mmlu | tee run_eval_mmlu.log
+"""
+
+
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 
@@ -180,26 +191,17 @@ def eval(
     Returns:
         eval_results (dict): A dictionary of evaluation results for the specified task(s).
     """
-    model_eval_wrapper = GPTFastEvalWrapper(
+    lm = GPTFastEvalWrapper(
         model,
         tokenizer,
         max_seq_length,
     )
 
-    try:
-        lm_eval.tasks.initialize_tasks()
-    except:
-        pass
-
-    if 'hendrycks_test' in tasks:
-        tasks.remove('hendrycks_test')
-        tasks += [x for x in lm_eval.tasks.hendrycks_test.create_all_tasks().keys()]
-    task_dict = get_task_dict(tasks)
-
-    eval_results = evaluate(
-        model_eval_wrapper,
-        task_dict,
-        limit=limit,
+    task_manager = lm_eval.tasks.TaskManager()
+    eval_results = lm_eval.simple_evaluate(
+        model=lm,
+        tasks=tasks,
+        task_manager=task_manager
     )
     return eval_results
 
