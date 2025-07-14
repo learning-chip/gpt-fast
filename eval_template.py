@@ -19,6 +19,9 @@ from lm_eval.models.utils import (
     stop_sequences_criteria,
 )
 
+from model import Transformer
+from generate import encode_tokens, model_forward
+from eval import setup_cache_padded_seq_input_pos_max_seq_length_for_prefill
 
 eval_logger = logging.getLogger(__name__)
 
@@ -192,32 +195,8 @@ class MinimumLM(TemplateLM):
     def _model_call(self, inps):
         raise Exception('unimplemented')
 
-    def _model_generate(self, context, max_length, stop, **generation_kwargs):
-        # temperature = 0.0 if not set
-        # if do_sample is false and temp==0.0:
-        # remove temperature, as do_sample=False takes care of this
-        # and we don't want a warning from HF
-        generation_kwargs["temperature"] = generation_kwargs.get("temperature", 0.0)
-        do_sample = generation_kwargs.get("do_sample", None)
-
-        # The temperature has to be a strictly positive float -- if it is 0.0, use greedy decoding strategies
-        if generation_kwargs.get("temperature") == 0.0 and do_sample is None:
-            generation_kwargs["do_sample"] = do_sample = False
-
-        if do_sample is False and generation_kwargs.get("temperature") == 0.0:
-            generation_kwargs.pop("temperature")
-        # build stopping criteria
-        stopping_criteria = stop_sequences_criteria(
-            self.tokenizer, stop, context.shape[1], context.shape[0]
-        )
-        return self.model.generate(
-            input_ids=context,
-            max_length=max_length,
-            stopping_criteria=stopping_criteria,
-            pad_token_id=self.tokenizer.pad_token_id,
-            use_cache=True,
-            **generation_kwargs,
-        )
+    def _model_generate(self, context, max_length, eos_token_id):
+        raise Exception('unimplemented')
 
     def _select_cont_toks(
         self, logits: torch.Tensor, contlen: int = None, inplen: int = None
@@ -527,4 +506,79 @@ class MinimumLM(TemplateLM):
     def generate_until(
         self, requests: List[Instance], disable_tqdm: bool = False
     ) -> List[str]:
+        raise Exception('unimplemented')
+
+
+class GPTFastEvalWrapper(MinimumLM):
+    """
+    A wrapper class for GPTFast, providing integration with the lm-evaluation-harness library.
+    """
+    def __init__(
+        self,
+        model: Transformer,
+        tokenizer,
+        max_seq_length: Optional[int]=None,
+    ):
+        device = torch.device('cuda')  # TODO: correctly set devices for TP>=2 cases
+        super().__init__(model=model, tokenizer=tokenizer, device=device, max_seq_length=max_seq_length)
+        self._max_seq_length = 2048 if max_seq_length is None else max_seq_length
+
+    @property
+    def eot_token_id(self):
+        return self._tokenizer.eos_id()
+
+    @property
+    def max_length(self):
+        return self._max_seq_length
+
+    @property
+    def max_gen_toks(self):
+        return 50
+
+    @property
+    def batch_size(self):
+        return 1
+
+    @property
+    def device(self):
+        return self._device
+
+    def tok_encode(self, string: str, **kwargs):
+        encoded = encode_tokens(self._tokenizer,
+            string, bos=True, device=self._device)
+        # encoded is a pytorch tensor, but some internal logic in the
+        # eval harness expects it to be a list instead
+        # TODO: verify this for multi-batch as well
+        encoded = encoded.tolist()
+        return encoded
+
+    def tok_decode(self, tokens):
+        decoded = self._tokenizer.decode(tokens)
+        return decoded
+
+    def _model_call(self, inps):
+        """
+        :param inps: torch.Tensor
+            A torch tensor of shape [batch, (sequence_ctx + sequence_cont)] or of shape
+            [batch, sequence_ctx]. the size of sequence may vary from call to call
+        :return
+            A torch tensor of shape [batch, sequence, vocab] with the
+        logits returned from the model's decoder
+        """
+        # TODO: make batches work
+        inps = inps.squeeze(0)
+
+        max_new_tokens = 1
+        seq, input_pos, max_seq_length = \
+            setup_cache_padded_seq_input_pos_max_seq_length_for_prefill(
+                self._model,
+                inps,
+                max_new_tokens,
+                self.max_length,
+            )
+        x = seq.index_select(0, input_pos).view(1, -1)
+        logits = model_forward(self._model, x, input_pos)
+        return logits
+
+    def _model_generate(self, context, max_length, eos_token_id):
         raise Exception('unimplemented')

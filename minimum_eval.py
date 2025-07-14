@@ -21,83 +21,8 @@ from lm_eval.utils import make_table
 
 from tokenizer import get_tokenizer
 from model import Transformer
-from generate import _load_model, encode_tokens, model_forward, device_sync
-from eval import setup_cache_padded_seq_input_pos_max_seq_length_for_prefill
-from eval_template import MinimumLM
-
-class GPTFastEvalWrapper(MinimumLM):
-    """
-    A wrapper class for GPTFast, providing integration with the lm-evaluation-harness library.
-    """
-    def __init__(
-        self,
-        model: Transformer,
-        tokenizer,
-        max_seq_length: Optional[int]=None,
-    ):
-        device = torch.device('cuda')  # TODO: correctly set devices for TP>=2 cases
-        super().__init__(model=model, tokenizer=tokenizer, device=device, max_seq_length=max_seq_length)
-        self._max_seq_length = 2048 if max_seq_length is None else max_seq_length
-
-    @property
-    def eot_token_id(self):
-        return self._tokenizer.eos_id()
-
-    @property
-    def max_length(self):
-        return self._max_seq_length
-
-    @property
-    def max_gen_toks(self):
-        return 50
-
-    @property
-    def batch_size(self):
-        return 1
-
-    @property
-    def device(self):
-        return self._device
-
-    def tok_encode(self, string: str, **kwargs):
-        encoded = encode_tokens(self._tokenizer,
-            string, bos=True, device=self._device)
-        # encoded is a pytorch tensor, but some internal logic in the
-        # eval harness expects it to be a list instead
-        # TODO: verify this for multi-batch as well
-        encoded = encoded.tolist()
-        return encoded
-
-    def tok_decode(self, tokens):
-        decoded = self._tokenizer.decode(tokens)
-        return decoded
-
-    def _model_call(self, inps):
-        """
-        :param inps: torch.Tensor
-            A torch tensor of shape [batch, (sequence_ctx + sequence_cont)] or of shape
-            [batch, sequence_ctx]. the size of sequence may vary from call to call
-        :return
-            A torch tensor of shape [batch, sequence, vocab] with the
-        logits returned from the model's decoder
-        """
-        # TODO: make batches work
-        inps = inps.squeeze(0)
-
-        max_new_tokens = 1
-        seq, input_pos, max_seq_length = \
-            setup_cache_padded_seq_input_pos_max_seq_length_for_prefill(
-                self._model,
-                inps,
-                max_new_tokens,
-                self.max_length,
-            )
-        x = seq.index_select(0, input_pos).view(1, -1)
-        logits = model_forward(self._model, x, input_pos)
-        return logits
-
-    def _model_generate(self, context, max_length, eos_token_id):
-        raise Exception('unimplemented')
+from generate import _load_model, device_sync
+from eval_template import GPTFastEvalWrapper
 
 
 @torch.no_grad()
