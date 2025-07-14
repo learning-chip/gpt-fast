@@ -86,7 +86,7 @@ def main(
         limit (Optional[int]): The maximum number of samples to evaluate (None for all available).
         max_seq_length (Optional[int]): The maximum sequence length allowed for input text.
     """
-    torch.cuda.set_device("cuda:1")
+    torch.cuda.set_device("cuda:0")  # only for single-device case, do not set here when TP
 
     assert checkpoint_path.is_file(), checkpoint_path
 
