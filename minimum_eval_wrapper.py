@@ -18,6 +18,7 @@ from lm_eval.models.utils import pad_and_concat
 from model import Transformer
 from generate import encode_tokens, model_forward
 from eval import setup_cache_padded_seq_input_pos_max_seq_length_for_prefill
+from tp import apply_tp, _get_rank
 
 eval_logger = logging.getLogger(__name__)
 
@@ -136,6 +137,13 @@ class GPTFastEvalWrapper(TemplateLM):
                 self.max_length,
             )
         x = seq.index_select(0, input_pos).view(1, -1)
+
+        rank = _get_rank()
+        print(
+            f"[rank {rank}] _model.device = {next(self._model.parameters()).device}; "
+            f"x.device = {x.device}; input_pos.device = {input_pos.device}"
+        )
+
         logits = model_forward(self._model, x, input_pos)
         return logits
 
