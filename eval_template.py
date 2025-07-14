@@ -438,29 +438,15 @@ class GPTFastEvalWrapper(TemplateLM):
         """
         Method to apply a chat template to a list of chat history between user and model.
         """
-        try:
-            chat_templated = self.tokenizer.apply_chat_template(
-                chat_history,
-                tokenize=False,
-                add_generation_prompt=add_generation_prompt,
-                continue_final_message=not add_generation_prompt,
-            )
-        except jinja2.exceptions.TemplateError:
-            eval_logger.warning(
-                "Failed to apply chat template. removing the system role in chat history."
-            )
-            chat_history = [msg for msg in chat_history if msg["role"] != "system"]
-            chat_templated = self.tokenizer.apply_chat_template(
-                chat_history,
-                tokenize=False,
-                add_generation_prompt=add_generation_prompt,
-                continue_final_message=not add_generation_prompt,
-            )
-
+        chat_templated = self.tokenizer.apply_chat_template(
+            chat_history,
+            tokenize=False,
+            add_generation_prompt=add_generation_prompt,
+            continue_final_message=not add_generation_prompt,
+        )
         return chat_templated
 
     def generate_until(
         self, requests: List[Instance], disable_tqdm: bool = False
     ) -> List[str]:
         raise Exception('unimplemented')
-
