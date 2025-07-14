@@ -1,31 +1,15 @@
 # streamlined from https://github.com/EleutherAI/lm-evaluation-harness/blob/v0.4.9/lm_eval/models/huggingface.py
 
-import copy
 import logging
-import os
-from datetime import timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import jinja2
 import torch
 import torch.nn.functional as F
 import transformers
-from accelerate import (
-    Accelerator,
-    InitProcessGroupKwargs,
-    find_executable_batch_size,
-)
-from accelerate.utils import get_max_memory
-from huggingface_hub import HfApi
-from packaging import version
-from peft import PeftModel
-from peft import __version__ as PEFT_VERSION
+from accelerate import find_executable_batch_size
 from tqdm import tqdm
-from transformers.models.auto.modeling_auto import (
-    MODEL_FOR_CAUSAL_LM_MAPPING_NAMES,
-    MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES,
-)
 
 from lm_eval import utils
 from lm_eval.api.instance import Instance
@@ -34,9 +18,6 @@ from lm_eval.api.registry import register_model
 from lm_eval.models.utils import (
     Collator,
     clear_torch_cache,
-    configure_pad_token,
-    get_dtype,
-    handle_stop_sequences,
     pad_and_concat,
     stop_sequences_criteria,
 )
