@@ -187,20 +187,6 @@ class GPTFastEvalWrapper(TemplateLM):
         pbar.close()
         return res
 
-    def apply_chat_template(
-        self, chat_history: List[Dict[str, str]], add_generation_prompt: bool = True
-    ) -> str:
-        """
-        Method to apply a chat template to a list of chat history between user and model.
-        """
-        chat_templated = self._tokenizer.apply_chat_template(
-            chat_history,
-            tokenize=False,
-            add_generation_prompt=add_generation_prompt,
-            continue_final_message=not add_generation_prompt,
-        )
-        return chat_templated
-
     # NOTE: below unimplemented functions are not needed for multiple choice "loglikelihood" tasks
     def loglikelihood_rolling(
         self, requests: List[Instance], disable_tqdm: bool = False
