@@ -144,9 +144,6 @@ class GPTFastEvalWrapper(TemplateLM):
         logits = model_forward(self._model, x, input_pos)
         return logits
 
-    def _model_generate(self, context, max_length, eos_token_id):
-        raise Exception('unimplemented')
-
     def _select_cont_toks(
         self, logits: torch.Tensor, contlen: int = None, inplen: int = None
     ) -> torch.Tensor:
@@ -157,11 +154,6 @@ class GPTFastEvalWrapper(TemplateLM):
         # also discard the input/context tokens. we'll only score continuations.
         logits = logits[inplen - contlen : inplen]
         return logits
-
-    def loglikelihood_rolling(
-        self, requests: List[Instance], disable_tqdm: bool = False
-    ) -> List[float]:
-        raise Exception('unimplemented')
 
     def _loglikelihood_tokens(
         self,
@@ -265,7 +257,7 @@ class GPTFastEvalWrapper(TemplateLM):
                 inps.append(inp)  # [1, inp_length]
                 cont_toks_list.append(continuation_enc)
                 inplens.append(inplen)
-            
+
             # assume "causal" model
             batched_inps = pad_and_concat(
                 padding_len_inp, inps, padding_side="right"
@@ -342,7 +334,6 @@ class GPTFastEvalWrapper(TemplateLM):
 
         return re_ord.get_original(res)
 
-
     def apply_chat_template(
         self, chat_history: List[Dict[str, str]], add_generation_prompt: bool = True
     ) -> str:
@@ -356,6 +347,15 @@ class GPTFastEvalWrapper(TemplateLM):
             continue_final_message=not add_generation_prompt,
         )
         return chat_templated
+
+    # NOTE: below implemented functions are not needed for multiple choice "loglikelihood" tasks
+    def loglikelihood_rolling(
+        self, requests: List[Instance], disable_tqdm: bool = False
+    ) -> List[float]:
+        raise Exception('unimplemented')
+
+    def _model_generate(self, context, max_length, eos_token_id):
+        raise Exception('unimplemented')
 
     def generate_until(
         self, requests: List[Instance], disable_tqdm: bool = False
