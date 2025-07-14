@@ -27,22 +27,22 @@ eval_logger = logging.getLogger(__name__)
 
 
 @register_model("minimum")
-class MinimumLM(TemplateLM):
-    """
-    Minimum causal LM for easy modification
-    """
-
-    AUTO_MODEL_CLASS = None
+class GPTFastEvalWrapper(TemplateLM):
     _DEFAULT_MAX_LENGTH = 2048
 
+    """
+    A wrapper class for GPTFast, providing integration with the lm-evaluation-harness library.
+    Minimum causal LM for easy modification.
+    """
     def __init__(
         self,
-        model,
+        model: Transformer,
         tokenizer,
-        device,
-        max_seq_length=None
-    ) -> None:
+        max_seq_length: Optional[int]=None,
+    ):
         super().__init__()
+        device = torch.device('cuda')  # TODO: correctly set devices for TP>=2 cases
+        self._max_seq_length = 2048 if max_seq_length is None else max_seq_length
 
         self._model = model
         self.tokenizer = self._tokenizer = tokenizer
@@ -80,8 +80,7 @@ class MinimumLM(TemplateLM):
 
     @property
     def eot_token_id(self):
-        # we use EOT because end of *text* is more accurate for what we're doing than end of *sentence*
-        return self.tokenizer.eos_token_id
+        return self._tokenizer.eos_id()
 
     @property
     def prefix_token_id(self):
@@ -94,25 +93,15 @@ class MinimumLM(TemplateLM):
 
     @property
     def max_length(self):
-        if self._max_length:  # if max length manually set, return it
-            return self._max_length
-        seqlen_config_attrs = ("n_positions", "max_position_embeddings", "n_ctx")
-        for attr in seqlen_config_attrs:
-            if hasattr(self.model.config, attr):
-                return getattr(self.model.config, attr)
-        if hasattr(self.tokenizer, "model_max_length"):
-            if self.tokenizer.model_max_length == 1000000000000000019884624838656:
-                return self._DEFAULT_MAX_LENGTH
-            return self.tokenizer.model_max_length
-        return self._DEFAULT_MAX_LENGTH
+        return self._max_seq_length
 
     @property
-    def max_gen_toks(self) -> int:
-        return 256
+    def max_gen_toks(self):
+        return 50
 
     @property
     def batch_size(self):
-        return self.batch_size_per_gpu
+        return 1
 
     @property
     def device(self):
@@ -126,31 +115,14 @@ class MinimumLM(TemplateLM):
     def world_size(self):
         return self._world_size
 
-    def tok_encode(
-        self, string: str, left_truncate_len=None, add_special_tokens=None
-    ) -> List[int]:
-        """ """
-        # default for None - empty dict, use predefined tokenizer param
-        # used for all models except for CausalLM or predefined value
-        special_tokens_kwargs = {}
-
-        # by default for CausalLM - false or self.add_bos_token is set
-        if add_special_tokens is None:
-            if self.backend == "causal":
-                special_tokens_kwargs = {
-                    "add_special_tokens": False or self.add_bos_token
-                }
-        # otherwise the method explicitly defines the value
-        else:
-            special_tokens_kwargs = {"add_special_tokens": add_special_tokens}
-
-        encoding = self.tokenizer.encode(string, **special_tokens_kwargs)
-
-        # left-truncate the encoded context to be at most `left_truncate_len` tokens long
-        if left_truncate_len:
-            encoding = encoding[-left_truncate_len:]
-
-        return encoding
+    def tok_encode(self, string: str, **kwargs):
+        encoded = encode_tokens(self._tokenizer,
+            string, bos=True, device=self._device)
+        # encoded is a pytorch tensor, but some internal logic in the
+        # eval harness expects it to be a list instead
+        # TODO: verify this for multi-batch as well
+        encoded = encoded.tolist()
+        return encoded
 
     def tok_batch_encode(
         self,
@@ -189,11 +161,33 @@ class MinimumLM(TemplateLM):
 
         return encoding["input_ids"], encoding["attention_mask"]
 
-    def tok_decode(self, tokens, skip_special_tokens=True):
-        return self.tokenizer.decode(tokens, skip_special_tokens=skip_special_tokens)
+    def tok_decode(self, tokens):
+        decoded = self._tokenizer.decode(tokens)
+        return decoded
 
     def _model_call(self, inps):
-        raise Exception('unimplemented')
+        """
+        :param inps: torch.Tensor
+            A torch tensor of shape [batch, (sequence_ctx + sequence_cont)] or of shape
+            [batch, sequence_ctx]. the size of sequence may vary from call to call
+        :return
+            A torch tensor of shape [batch, sequence, vocab] with the
+        logits returned from the model's decoder
+        """
+        # TODO: make batches work
+        inps = inps.squeeze(0)
+
+        max_new_tokens = 1
+        seq, input_pos, max_seq_length = \
+            setup_cache_padded_seq_input_pos_max_seq_length_for_prefill(
+                self._model,
+                inps,
+                max_new_tokens,
+                self.max_length,
+            )
+        x = seq.index_select(0, input_pos).view(1, -1)
+        logits = model_forward(self._model, x, input_pos)
+        return logits
 
     def _model_generate(self, context, max_length, eos_token_id):
         raise Exception('unimplemented')
@@ -508,77 +502,3 @@ class MinimumLM(TemplateLM):
     ) -> List[str]:
         raise Exception('unimplemented')
 
-
-class GPTFastEvalWrapper(MinimumLM):
-    """
-    A wrapper class for GPTFast, providing integration with the lm-evaluation-harness library.
-    """
-    def __init__(
-        self,
-        model: Transformer,
-        tokenizer,
-        max_seq_length: Optional[int]=None,
-    ):
-        device = torch.device('cuda')  # TODO: correctly set devices for TP>=2 cases
-        super().__init__(model=model, tokenizer=tokenizer, device=device, max_seq_length=max_seq_length)
-        self._max_seq_length = 2048 if max_seq_length is None else max_seq_length
-
-    @property
-    def eot_token_id(self):
-        return self._tokenizer.eos_id()
-
-    @property
-    def max_length(self):
-        return self._max_seq_length
-
-    @property
-    def max_gen_toks(self):
-        return 50
-
-    @property
-    def batch_size(self):
-        return 1
-
-    @property
-    def device(self):
-        return self._device
-
-    def tok_encode(self, string: str, **kwargs):
-        encoded = encode_tokens(self._tokenizer,
-            string, bos=True, device=self._device)
-        # encoded is a pytorch tensor, but some internal logic in the
-        # eval harness expects it to be a list instead
-        # TODO: verify this for multi-batch as well
-        encoded = encoded.tolist()
-        return encoded
-
-    def tok_decode(self, tokens):
-        decoded = self._tokenizer.decode(tokens)
-        return decoded
-
-    def _model_call(self, inps):
-        """
-        :param inps: torch.Tensor
-            A torch tensor of shape [batch, (sequence_ctx + sequence_cont)] or of shape
-            [batch, sequence_ctx]. the size of sequence may vary from call to call
-        :return
-            A torch tensor of shape [batch, sequence, vocab] with the
-        logits returned from the model's decoder
-        """
-        # TODO: make batches work
-        inps = inps.squeeze(0)
-
-        max_new_tokens = 1
-        seq, input_pos, max_seq_length = \
-            setup_cache_padded_seq_input_pos_max_seq_length_for_prefill(
-                self._model,
-                inps,
-                max_new_tokens,
-                self.max_length,
-            )
-        x = seq.index_select(0, input_pos).view(1, -1)
-        logits = model_forward(self._model, x, input_pos)
-        return logits
-
-    def _model_generate(self, context, max_length, eos_token_id):
-        raise Exception('unimplemented')
