@@ -195,44 +195,18 @@ class GPTFastEvalWrapper(TemplateLM):
     def _select_cont_toks(
         self, logits: torch.Tensor, contlen: int = None, inplen: int = None
     ) -> torch.Tensor:
-        if self.backend == "causal":
-            assert contlen and inplen, (
-                "Must pass input len and cont. len to select scored logits for causal LM"
-            )
-            # discard right-padding.
-            # also discard the input/context tokens. we'll only score continuations.
-            logits = logits[inplen - contlen : inplen]
-        elif self.backend == "seq2seq":
-            assert contlen and not inplen, (
-                "Selecting scored logits for Seq2SeqLM requires only cont. len"
-            )
-            # only discard right-padding.
-            # the logits input to this fn only contain decoder-side tokens.
-            logits = logits[:contlen]
-
+        assert contlen and inplen, (
+            "Must pass input len and cont. len to select scored logits for causal LM"
+        )
+        # discard right-padding.
+        # also discard the input/context tokens. we'll only score continuations.
+        logits = logits[inplen - contlen : inplen]
         return logits
 
     def loglikelihood_rolling(
         self, requests: List[Instance], disable_tqdm: bool = False
     ) -> List[float]:
         raise Exception('unimplemented')
-
-    def _batch_scheduler(self, pos, n_reordered_requests):
-        sched = pos // int(len(n_reordered_requests) / self.batch_schedule)
-        if sched in self.batch_sizes:
-            return self.batch_sizes[sched]
-        if (len(self.batch_sizes) > 1) and (
-            self.batch_sizes[sched - 1] == self.max_batch_size
-        ):
-            # if previous batch size is already maximal, skip recomputation
-            self.batch_sizes[sched] = self.max_batch_size
-            return self.batch_sizes[sched]
-        print(
-            f"Passed argument batch_size = auto:{self.batch_schedule}. Detecting largest batch size"
-        )
-        self.batch_sizes[sched] = self._detect_batch_size(n_reordered_requests, pos)
-        print(f"Determined largest batch size: {self.batch_sizes[sched]}")
-        return self.batch_sizes[sched]
 
     def _loglikelihood_tokens(
         self,
@@ -275,20 +249,8 @@ class GPTFastEvalWrapper(TemplateLM):
         # automatic (variable) batch size detection for vectorization
         # pull longest context sample from request
         n_reordered_requests = len(re_ord)
-        batch_size = (
-            self.batch_size
-            if self.batch_size != "auto"
-            else override_bs
-            if override_bs is not None
-            else 0
-        )
-        batch_fn = (
-            self._batch_scheduler
-            if self.batch_size == "auto"
-            and n_reordered_requests > 0
-            and not override_bs
-            else None
-        )
+        batch_size = 1
+        batch_fn = None
 
         chunks = re_ord.get_batched(n=batch_size, batch_fn=batch_fn)
         pbar = tqdm(
