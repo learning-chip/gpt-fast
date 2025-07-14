@@ -48,12 +48,6 @@ class GPTFastEvalWrapper(TemplateLM):
         self._max_length = max_seq_length
         self.softmax_dtype = None  # TODO: use float32 to get higher acc?
 
-        # TODO: fix for TP case
-        self._rank = 0
-        self._world_size = 1
-
-        self.custom_prefix_token_id = None
-
         # still need `freqs_cis` and `causal_mask` cache even for prefill
         with torch.device(device):
             self._model.setup_caches(max_batch_size=1, max_seq_length=self._max_seq_length)
@@ -87,13 +81,10 @@ class GPTFastEvalWrapper(TemplateLM):
     def device(self):
         return self._device
 
-    @property
-    def rank(self):
-        return self._rank
-
-    @property
-    def world_size(self):
-        return self._world_size
+    # NOTE: do not define self.world_size, otherwise evaluator will assume DP
+    # https://github.com/EleutherAI/lm-evaluation-harness/blob/v0.4.9/lm_eval/evaluator.py#L540
+    # here we hide TP inside model, invisble to lm-eval, similar to `VLLM`
+    # https://github.com/EleutherAI/lm-evaluation-harness/blob/v0.4.9/lm_eval/models/vllm_causallms.py#L108
 
     def tok_encode(self, string: str, **kwargs):
         encoded = encode_tokens(self._tokenizer,
