@@ -53,11 +53,6 @@ class GPTFastEvalWrapper(TemplateLM):
             self._model.setup_caches(max_batch_size=1, max_seq_length=self._max_seq_length)
 
     @property
-    def config(self):
-        # return the associated transformers.AutoConfig for the given pretrained model.
-        return self._config
-
-    @property
     def model(self):
         return self._model
 
