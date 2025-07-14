@@ -1,13 +1,21 @@
 """
 MODEL_PATH=/scratch/model_weights/Llama-2-7b-chat-hf/model.pth
 python minimum_eval_usage.py --checkpoint_path $MODEL_PATH \
-    --tasks mmlu_high_school_computer_science mmlu_college_biology
+    --tasks mmlu_high_school_computer_science mmlu_college_biology \
+    | tee run_minimumeval_mmlusubset.log
 
 python minimum_eval_usage.py --checkpoint_path $MODEL_PATH \
     --tasks gpqa_diamond_zeroshot
 
 python minimum_eval_usage.py --checkpoint_path $MODEL_PATH \
     --tasks mmlu | tee run_minimumeval_mmlu.log
+# TODO: why 2x slower than original eval wrapper
+
+# debug TP=2
+torchrun --standalone --nproc_per_node=2 \
+    minimum_eval_usage.py --checkpoint_path $MODEL_PATH \
+    --tasks mmlu_high_school_computer_science mmlu_college_biology \
+    2>&1 | tee run_minimumeval_mmlusubset_TP2.log
 """
 
 import sys
