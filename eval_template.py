@@ -50,17 +50,9 @@ class GPTFastEvalWrapper(TemplateLM):
 
         # NOTE: assume causal decoding-only model
         self.backend = "causal"
-        self.AUTO_MODEL_CLASS = transformers.AutoModelForCausalLM
-
-        self.truncation = False
         self.logits_cache = True
 
-        self.add_bos_token = False
         self._max_length = max_seq_length
-        self.batch_schedule = 1
-        self.batch_sizes = {}
-        self.max_batch_size = 1  # NOTE: assume bs=1 for now
-        self.batch_size_per_gpu = 1
         self.softmax_dtype = None  # TODO: use float32 to get higher acc?
 
         # TODO: fix for TP case
@@ -101,7 +93,7 @@ class GPTFastEvalWrapper(TemplateLM):
 
     @property
     def batch_size(self):
-        return 1
+        return 1   # NOTE: assume bs=1 for now
 
     @property
     def device(self):
