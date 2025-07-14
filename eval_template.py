@@ -189,34 +189,8 @@ class MinimumLM(TemplateLM):
     def tok_decode(self, tokens, skip_special_tokens=True):
         return self.tokenizer.decode(tokens, skip_special_tokens=skip_special_tokens)
 
-    def _model_call(self, inps, attn_mask=None, labels=None):
-        """
-        :param inps: torch.Tensor
-            A torch tensor of shape [batch, (sequence_ctx + sequence_cont)] or of shape
-            [batch, sequence_ctx]. the size of sequence may vary from call to call
-        :param attn_mask: torch.Tensor, optional
-            A torch tensor of shape [batch, (sequence_ctx + sequence_cont)]. Only passed
-            (and must be passed) if self.AUTO_MODEL_CLASS is transformers.AutoModelForSeq2SeqLM
-        :param labels: torch.Tensor, optional
-            A torch tensor of shape [batch, (sequence_ctx + sequence_cont)]. Only passed
-            (and must be passed) if self.AUTO_MODEL_CLASS is transformers.AutoModelForSeq2SeqLM
-        :return
-            A torch tensor of shape [batch, sequence, vocab] with the
-        logits returned from the model's decoder
-        """
-        with torch.no_grad():
-            if attn_mask is not None or labels is not None:
-                assert attn_mask is not None and labels is not None
-                assert self.AUTO_MODEL_CLASS == transformers.AutoModelForSeq2SeqLM
-                return self.model(
-                    input_ids=inps, attention_mask=attn_mask, labels=labels
-                ).logits
-            else:
-                assert self.AUTO_MODEL_CLASS in (
-                    transformers.AutoModelForCausalLM,
-                    transformers.AutoModelForVision2Seq,
-                )
-                return self.model(inps).logits
+    def _model_call(self, inps):
+        raise Exception('unimplemented')
 
     def _model_generate(self, context, max_length, stop, **generation_kwargs):
         # temperature = 0.0 if not set

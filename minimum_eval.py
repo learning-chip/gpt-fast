@@ -73,6 +73,14 @@ class GPTFastEvalWrapper(MinimumLM):
         return decoded
 
     def _model_call(self, inps):
+        """
+        :param inps: torch.Tensor
+            A torch tensor of shape [batch, (sequence_ctx + sequence_cont)] or of shape
+            [batch, sequence_ctx]. the size of sequence may vary from call to call
+        :return
+            A torch tensor of shape [batch, sequence, vocab] with the
+        logits returned from the model's decoder
+        """
         # TODO: make batches work
         inps = inps.squeeze(0)
 
