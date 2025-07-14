@@ -13,11 +13,7 @@ from lm_eval import utils
 from lm_eval.api.instance import Instance
 from lm_eval.api.model import TemplateLM
 from lm_eval.api.registry import register_model
-from lm_eval.models.utils import (
-    Collator,
-    pad_and_concat,
-    stop_sequences_criteria,
-)
+from lm_eval.models.utils import pad_and_concat
 
 from model import Transformer
 from generate import encode_tokens, model_forward
