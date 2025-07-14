@@ -72,15 +72,6 @@ class GPTFastEvalWrapper(TemplateLM):
         return self._tokenizer.eos_id()
 
     @property
-    def prefix_token_id(self):
-        # it is used as prefix for loglikelihood
-        if self.custom_prefix_token_id is not None:
-            return self.custom_prefix_token_id
-        if self.tokenizer.bos_token_id is not None:
-            return self.tokenizer.bos_token_id
-        return self.tokenizer.eos_token_id
-
-    @property
     def max_length(self):
         return self._max_seq_length
 
@@ -109,7 +100,6 @@ class GPTFastEvalWrapper(TemplateLM):
             string, bos=True, device=self._device)
         # encoded is a pytorch tensor, but some internal logic in the
         # eval harness expects it to be a list instead
-        # TODO: verify this for multi-batch as well
         encoded = encoded.tolist()
         return encoded
 
