@@ -4,7 +4,6 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-import jinja2
 import torch
 import torch.nn.functional as F
 import transformers
@@ -16,7 +15,6 @@ from lm_eval.api.model import TemplateLM
 from lm_eval.api.registry import register_model
 from lm_eval.models.utils import (
     Collator,
-    clear_torch_cache,
     pad_and_concat,
     stop_sequences_criteria,
 )
@@ -270,88 +268,7 @@ class MinimumLM(TemplateLM):
     def loglikelihood_rolling(
         self, requests: List[Instance], disable_tqdm: bool = False
     ) -> List[float]:
-        adaptive_batch_size = None
-        if self.batch_size == "auto":
-            # using rolling window with maximum context
-            print("Passed argument batch_size = auto. Detecting largest batch size")
-            batch_size = self._detect_batch_size()
-            print(f"Determined Largest batch size: {batch_size}")
-            adaptive_batch_size = batch_size
-
-        # First, collect all windows from all requests
-        all_windows = []  # List of (request_idx, window) tuples
-        request_window_counts = []  # Track number of windows per request
-
-        for req_idx, (string,) in enumerate(
-            tqdm(
-                [req.args for req in requests],
-                disable=(disable_tqdm or (self.rank != 0)),
-            )
-        ):
-            rolling_token_windows: List[Tuple[List[int], List[int]]] = list(
-                map(
-                    utils.make_disjoint_window,
-                    utils.get_rolling_token_windows(
-                        token_list=self.tok_encode(string),
-                        prefix_token=self.prefix_token_id,
-                        max_seq_len=self.max_length,
-                        context_len=1,
-                    ),
-                )
-            )
-
-            # TODO: Right now, we pass single EOT token to the Encoder and the full context to the decoder, in seq2seq case
-            windows = [(None,) + x for x in rolling_token_windows]
-
-            # Store windows with their request index
-            all_windows.extend((req_idx, window) for window in windows)
-            request_window_counts.append(len(windows))
-
-        # Handle distributed case padding
-        pad_amnt = 0
-        if self.world_size > 1:
-            mytensor = torch.tensor(len(all_windows), device=self.device)
-            gathered = self.accelerator.gather(mytensor).cpu().detach().numpy().tolist()
-            pad_amnt = max(gathered) - gathered[self.rank]
-            if pad_amnt > 0:
-                all_windows += pad_amnt * [all_windows[0]]
-
-        all_nlls = []
-        batch_size = adaptive_batch_size or self.batch_size
-        for i in range(0, len(all_windows), batch_size):
-            batch = all_windows[i : i + batch_size]
-            # Extract just the windows for processing, keeping track of request indices
-            batch_indices, batch_windows = zip(*batch)
-
-            batch_nlls = self._loglikelihood_tokens(
-                requests=batch_windows,
-                disable_tqdm=False,
-                override_bs=len(batch_windows),
-            )
-            # Store results with their request indices
-            all_nlls.extend(zip(batch_indices, batch_nlls))
-
-        # Remove padding if necessary
-        if (self.world_size > 1) and (pad_amnt > 0):
-            all_nlls = all_nlls[:-pad_amnt]
-
-        # Reconstruct per-request loglikelihoods
-        loglikelihoods = []
-        current_idx = 0
-        for window_count in request_window_counts:
-            # Get all nlls for this request
-            request_nlls = all_nlls[current_idx : current_idx + window_count]
-            # Sum up the nlls for this request (discarding is_greedy)
-            request_total = sum(nll[0] for _, nll in request_nlls)
-            loglikelihoods.append(request_total)
-            current_idx += window_count
-
-            string = requests[len(loglikelihoods) - 1].args[0]
-            self.cache_hook.add_partial(
-                "loglikelihood_rolling", (string,), request_total
-            )
-
-        return loglikelihoods
+        raise Exception('unimplemented')
 
     def _batch_scheduler(self, pos, n_reordered_requests):
         sched = pos // int(len(n_reordered_requests) / self.batch_schedule)
