@@ -181,7 +181,7 @@ class GPTFastEvalWrapper(TemplateLM):
             )
             inplen = inp.shape[0]
             cont_toks = continuation_enc
-            contlen = len(cont_toks)
+            contlen = len(cont_toks)  # for most tasks contlen==1, i.e. look at single next token
 
             inp = inp.unsqueeze(0)  # # [seq] -> [1, seq]
             logits = F.log_softmax(
