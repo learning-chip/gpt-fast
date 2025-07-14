@@ -54,10 +54,6 @@ class GPTFastEvalWrapper(TemplateLM):
         return self._max_seq_length
 
     @property
-    def batch_size(self):
-        return 1   # NOTE: assume bs=1 for now
-
-    @property
     def device(self):
         return self._device
 
