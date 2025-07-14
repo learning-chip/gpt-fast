@@ -5,6 +5,9 @@ python minimum_eval_usage.py --checkpoint_path $MODEL_PATH \
 
 python minimum_eval_usage.py --checkpoint_path $MODEL_PATH \
     --tasks gpqa_diamond_zeroshot
+
+python minimum_eval_usage.py --checkpoint_path $MODEL_PATH \
+    --tasks mmlu | tee run_minimumeval_mmlu.log
 """
 
 import sys
@@ -22,7 +25,7 @@ from lm_eval.utils import make_table
 from tokenizer import get_tokenizer
 from model import Transformer
 from generate import _load_model, device_sync
-from eval_template import GPTFastEvalWrapper
+from minimum_eval_wrapper import GPTFastEvalWrapper
 
 
 @torch.no_grad()
