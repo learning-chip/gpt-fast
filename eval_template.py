@@ -8,7 +8,6 @@ import jinja2
 import torch
 import torch.nn.functional as F
 import transformers
-from accelerate import find_executable_batch_size
 from tqdm import tqdm
 
 from lm_eval import utils
@@ -125,67 +124,6 @@ class MinimumLM(TemplateLM):
     @property
     def world_size(self):
         return self._world_size
-
-    def _detect_batch_size(self, requests=None, pos: int = 0):
-        if requests:
-            _, context_enc, continuation_enc = requests[pos]
-            max_length = len(
-                (context_enc + continuation_enc)[-(self.max_length + 1) :][:-1]
-            )
-            max_context_enc = len(context_enc[-(self.max_length + 1) :])
-            max_cont_enc = len(continuation_enc[-(self.max_length + 1) :])
-        else:
-            max_length = self.max_length
-            max_context_enc = max_length
-            max_cont_enc = max_length
-
-        # if OOM, then halves batch_size and tries again
-        @find_executable_batch_size(starting_batch_size=self.max_batch_size)
-        def forward_batch(batch_size):
-            if self.backend == "seq2seq":
-                length = max(max_context_enc, max_cont_enc)
-                batched_conts = torch.ones(
-                    (batch_size, length), device=self.device
-                ).long()
-                test_batch = torch.ones((batch_size, length), device=self.device).long()
-                call_kwargs = {
-                    "attn_mask": test_batch,
-                    "labels": batched_conts,
-                }
-            else:
-                call_kwargs = {}
-                test_batch = torch.ones(
-                    (batch_size, max_length), device=self.device
-                ).long()
-            for _ in range(5):
-                out = F.log_softmax(  # noqa: F841
-                    self._model_call(test_batch, **call_kwargs),
-                    dim=-1,
-                    dtype=self.softmax_dtype,
-                )
-
-            return batch_size
-
-        try:
-            batch_size = forward_batch()
-        except RuntimeError as e:
-            if "No executable batch size found" in str(e):
-                batch_size = 1
-            else:
-                raise
-
-        if self.world_size > 1:
-            # if multi-GPU, always take minimum over all selected batch sizes
-            max_rnk_bs = torch.tensor([batch_size], device=self.device)
-            gathered = (
-                self.accelerator.gather(max_rnk_bs).cpu().detach().numpy().tolist()
-            )
-            batch_size = min(gathered)
-            clear_torch_cache()
-            return batch_size
-
-        clear_torch_cache()
-        return batch_size
 
     def tok_encode(
         self, string: str, left_truncate_len=None, add_special_tokens=None
