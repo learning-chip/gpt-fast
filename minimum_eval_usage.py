@@ -1,9 +1,9 @@
 """
 MODEL_PATH=/scratch/model_weights/Llama-2-7b-chat-hf/model.pth
-python minimum_eval.py --checkpoint_path $MODEL_PATH \
+python minimum_eval_usage.py --checkpoint_path $MODEL_PATH \
     --tasks mmlu_high_school_computer_science mmlu_college_biology
 
-python minimum_eval.py --checkpoint_path $MODEL_PATH \
+python minimum_eval_usage.py --checkpoint_path $MODEL_PATH \
     --tasks gpqa_diamond_zeroshot
 """
 
