@@ -161,178 +161,73 @@ class GPTFastEvalWrapper(TemplateLM):
         disable_tqdm: bool = False,
         override_bs: int = None,
     ) -> List[Tuple[float, bool]]:
-        # TODO: implement some kind of efficient-request-middleware that lumps together requests with the same context
+        # Simplified for batch_size=1: no Collator, just loop over requests
         res = []
-
-        def _collate(req: Tuple[Tuple[str, str], List[int], List[int]]):
-            """Defines the key for the sorted method"""
-            # the negative sign on len(toks) sorts descending - this has a few advantages:
-            # - time estimates will always be over not underestimates, which is more useful for planning
-            # - to know the size of a batch when going through the list, you know the first one is always the batch
-            #   padded context length. this is useful to simplify the batching logic and more importantly to make
-            #   automatic adaptive batches much much easier to implement
-            # - any OOMs will happen right away rather than near the end
-
-            toks = req[1] + req[2]
-            return -len(toks), tuple(toks)
-
-        def _lookup_one_token_cont(req: Tuple[Tuple[str, str], List[int], List[int]]):
-            """Defines the key to group and lookup one-token continuations"""
-            # Use with group_by="contexts" (optional)"
-            # allows for the creation of a lookup, so we can reuse logits in case of one-token continuations.
-            # speeds up some multiple-choice tasks proportionally to the number of choices.
-            # groups requests by context+continuation[:-1] and infer on one request/group.
-            return req[-2] + req[-1][:-1]
-
-        re_ord = Collator(
-            requests,
-            sort_fn=_collate,
-            group_by="contexts"
-            if self.backend == "causal" and self.logits_cache
-            else None,
-            group_fn=_lookup_one_token_cont,
-        )
-
-        # automatic (variable) batch size detection for vectorization
-        # pull longest context sample from request
-        n_reordered_requests = len(re_ord)
-        batch_size = 1
-        batch_fn = None
-
-        chunks = re_ord.get_batched(n=batch_size, batch_fn=batch_fn)
         pbar = tqdm(
             total=len(requests),
             disable=(disable_tqdm or (self.rank != 0)),
             desc="Running loglikelihood requests",
         )
-        for chunk in chunks:
-            inps = []
-            cont_toks_list = []
-            inplens = []
+        for request in requests:
+            request_str, context_enc, continuation_enc = request
+            # sanity check
+            assert len(context_enc) > 0
+            assert len(continuation_enc) > 0
+            assert len(continuation_enc) <= self.max_length
 
-            conts = []
-            encoder_attns = []
-
-            padding_len_inp = None
-            padding_len_cont = None
-            # because vectorizing is annoying, we first convert each (context, continuation) pair to padded
-            # tensors, then we pack them together into a batch, call the model, and then pick it all apart
-            # again because vectorizing is annoying
-
-            for _, context_enc, continuation_enc in chunk:
-                # sanity check
-                assert len(context_enc) > 0
-                assert len(continuation_enc) > 0
-                assert len(continuation_enc) <= self.max_length
-
-                # how this all works (illustrated on a causal decoder-only setup):
-                #          CTX      CONT
-                # inp    0 1 2 3|4 5 6 7 8 9   <- last token is deleted by inp[:, :-1]
-                # model  \               \
-                # logits   1 2 3|4 5 6 7 8 9   <- the ctx half gets tossed out by the
-                # cont_toks      4 5 6 7 8 9      [:, -len(continuation_enc):, :self.vocab_size] slice
-
-                # when too long to fit in context, truncate from the left
-                # assume causal model
-                total_length = len(context_enc) + len(continuation_enc)
-                if total_length > self.max_length + 1:
-                    eval_logger.warning(
-                        f"Combined length of context ({len(context_enc)}) and continuation ({len(continuation_enc)}) "
-                        f"exceeds model's maximum length ({self.max_length}). "
-                        f"Truncating {total_length - self.max_length + 1} tokens from the left."
-                    )
-                inp = torch.tensor(
-                    (context_enc + continuation_enc)[-(self.max_length + 1) :][:-1],
-                    dtype=torch.long,
-                    device=self.device,
+            total_length = len(context_enc) + len(continuation_enc)
+            if total_length > self.max_length + 1:
+                eval_logger.warning(
+                    f"Combined length of context ({len(context_enc)}) and continuation ({len(continuation_enc)}) "
+                    f"exceeds model's maximum length ({self.max_length}). "
+                    f"Truncating {total_length - self.max_length + 1} tokens from the left."
                 )
-                (inplen,) = inp.shape
+            inp = torch.tensor(
+                (context_enc + continuation_enc)[-(self.max_length + 1):][:-1],
+                dtype=torch.long,
+                device=self.device,
+            )
+            inplen = inp.shape[0]
+            cont_toks = continuation_enc
+            contlen = len(cont_toks)
 
-                padding_len_inp = (
-                    max(padding_len_inp, inplen)
-                    if padding_len_inp is not None
-                    else inplen
-                )
-
-                inps.append(inp)  # [1, inp_length]
-                cont_toks_list.append(continuation_enc)
-                inplens.append(inplen)
-
-            # assume "causal" model
-            batched_inps = pad_and_concat(
-                padding_len_inp, inps, padding_side="right"
-            )  # [batch, padding_len_inp]
-
+            # Pad to batch (batch_size=1)
+            batched_inps = pad_and_concat(inplen, [inp], padding_side="right")  # [1, inplen]
             multi_logits = F.log_softmax(
                 self._model_call(batched_inps),
                 dim=-1,
                 dtype=self.softmax_dtype,
-            )  # [batch, padding_length (inp or cont), vocab]
+            )  # [1, inplen, vocab]
+            logits = multi_logits[0]  # [inplen, vocab]
 
-            for (request_str, ctx_tokens, _), logits, inplen, cont_toks in zip(
-                chunk, multi_logits, inplens, cont_toks_list
-            ):
-                # Slice to original seq length
-                contlen = len(cont_toks)
-                # take only logits in the continuation
-                # (discard context toks if decoder-only ; discard right-padding)
-                # also discards + checks for "virtual tokens" in the causal LM's input window
-                # from prompt/prefix tuning tokens, if applicable
-                ctx_len = (
-                    inplen + (logits.shape[0] - padding_len_inp)
-                    if self.backend == "causal"
-                    else None
+            # For batch_size=1, padding_len_inp = inplen, so ctx_len = inplen
+            ctx_len = inplen
+            logits = self._select_cont_toks(logits, contlen=contlen, inplen=ctx_len)
+            logits = logits.unsqueeze(0)  # [1, seq, vocab]
+
+            greedy_tokens = logits.argmax(dim=-1)
+            cont_toks_tensor = torch.tensor(
+                cont_toks, dtype=torch.long, device=self.device
+            ).unsqueeze(0)  # [1, seq]
+            max_equal = (
+                greedy_tokens[:, -cont_toks_tensor.shape[1]:] == cont_toks_tensor
+            ).all()
+
+            logits_gathered = torch.gather(
+                logits, 2, cont_toks_tensor.unsqueeze(-1)
+            ).squeeze(-1)  # [1, seq]
+
+            answer = (float(logits_gathered.sum()), bool(max_equal))
+            res.append(answer)
+
+            if request_str is not None:
+                self.cache_hook.add_partial(
+                    "loglikelihood", request_str, answer
                 )
-                logits = self._select_cont_toks(logits, contlen=contlen, inplen=ctx_len)
-                logits = logits.unsqueeze(0)  # [1, seq, vocab]
-
-                # Check if per-token argmax is exactly equal to continuation
-                greedy_tokens = logits.argmax(dim=-1)
-
-                # check for one-token continuation cache hits.
-                # noop in case group_by != "contexts" or no cache hit and returns the
-                # original args. Otherwise, expands the logits batch dimension and yields each
-                # batch along with matching continuation tokens and prompt strings.
-                # logits -> [1, seq, vocab]
-                for request_str, cont_toks, logits in re_ord.get_cache(
-                    req_str=request_str,
-                    cxt_toks=ctx_tokens,
-                    cont_toks=cont_toks,
-                    logits=logits,
-                ):
-                    cont_toks = torch.tensor(
-                        cont_toks, dtype=torch.long, device=self.device
-                    ).unsqueeze(0)  # [1, seq]
-                    # Use trailing slice [-cont_toks.shape[1]:] to handle variable length cont_len (but same ctx+cont[:-1]).
-                    # i.e. continuations can be sliced at diff points. Collator ensures we have sufficient greedy_tokens
-                    # by choosing key with longest cont if group_by="contexts".
-                    max_equal = (
-                        greedy_tokens[:, -cont_toks.shape[1] :] == cont_toks
-                    ).all()
-
-                    # Obtain log-probs at the corresponding continuation token indices
-                    # last_token_slice = logits[:, -1, :].squeeze(0).tolist()
-                    logits = torch.gather(logits, 2, cont_toks.unsqueeze(-1)).squeeze(
-                        -1
-                    )  # [1, seq]
-
-                    # Answer: (log prob, is-exact-match)
-                    answer = (float(logits.sum()), bool(max_equal))
-
-                    res.append(answer)
-
-                    if request_str is not None:
-                        # special case: loglikelihood_rolling produces a number of loglikelihood requests
-                        # all with cache key None. instead do add_partial on the per-example level
-                        # in the loglikelihood_rolling() function for those.
-                        self.cache_hook.add_partial(
-                            "loglikelihood", request_str, answer
-                        )
-                    pbar.update(1)
+            pbar.update(1)
 
         pbar.close()
-
-        return re_ord.get_original(res)
+        return res
 
     def apply_chat_template(
         self, chat_history: List[Dict[str, str]], add_generation_prompt: bool = True
