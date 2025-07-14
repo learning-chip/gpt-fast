@@ -34,6 +34,7 @@ sys.path.append(str(wd))
 
 from model import Transformer
 from tokenizer import get_tokenizer
+from tp import apply_tp, _get_rank
 
 def multinomial_sample_one_no_sync(probs_sort): # Does multinomial sampling without a cuda synchronization
     q = torch.empty_like(probs_sort).exponential_(1)
@@ -159,6 +160,9 @@ def generate(
     else:
         max_seq_length = min(T_new, model.config.block_size)
 
+    rank = _get_rank()
+    print(f"[rank {rank}] prompt.device = {prompt.device}")
+
     device, dtype = prompt.device, prompt.dtype
     max_seq_length = max_seq_length + speculate_k + 1 if is_speculative else max_seq_length
     with torch.device(device):
@@ -236,7 +240,6 @@ def _load_model(checkpoint_path, device, precision, use_tp):
     model.load_state_dict(checkpoint, assign=True)
 
     if use_tp:
-        from tp import apply_tp, _get_rank
         rank = _get_rank()
         print(f"[rank {rank}] Applying tensor parallel to model ...")
         apply_tp(model)
@@ -311,6 +314,7 @@ def main(
     tokenizer = get_tokenizer(tokenizer_path, checkpoint_path)
 
     encoded = encode_tokens(tokenizer, prompt, bos=True, device=device)
+    print(f"[rank {rank}] encoded.device = {encoded}")
     prompt_length = encoded.size(0)
 
     torch.manual_seed(1234)
@@ -394,7 +398,7 @@ def main(
         t = time.perf_counter() - t0
 
         if not interactive:
-            print(tokenizer.decode(y.tolist()))
+            print(f"[rank {rank}] {tokenizer.decode(y.tolist())}")
         else:
             print()
         tokens_generated = y.size(0) - prompt_length
@@ -420,7 +424,7 @@ if __name__ == '__main__':
     parser.add_argument('--prompt', type=str, default="Hello, my name is", help='Input prompt.')
     parser.add_argument('--interactive', action='store_true', help='Whether to launch in interactive mode')
     parser.add_argument('--num_samples', type=int, default=5, help='Number of samples.')
-    parser.add_argument('--max_new_tokens', type=int, default=200, help='Maximum number of new tokens.')
+    parser.add_argument('--max_new_tokens', type=int, default=20, help='Maximum number of new tokens.')
     parser.add_argument('--top_k', type=int, default=200, help='Top-k for sampling.')
     parser.add_argument('--temperature', type=float, default=0.8, help='Temperature for sampling.')
     parser.add_argument('--checkpoint_path', type=Path, default=Path("checkpoints/meta-Transformer/Transformer-2-7b-chat-hf/model.pth"), help='Model checkpoint path.')
